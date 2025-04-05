@@ -1,0 +1,117 @@
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from PIL import Image, ImageTk
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import img_to_array
+
+# Carrega o modelo treinado
+MODEL_PATH = "classificador_ortopedia_ia.h5"
+model = tf.keras.models.load_model(MODEL_PATH)
+
+# Mapeia as classes (ajuste conforme necessário)
+class_names = ['baixo_risco', 'moderado_risco', 'alto_risco']
+
+# Parâmetros da imagem
+IMG_SIZE = (224, 224)
+
+# Função para processar e classificar a imagem com dados clínicos
+
+def classify_image(image_path, dor, localizacao, fratura, funcao_neurologica):
+    image = Image.open(image_path).convert('RGB')
+    image = image.resize(IMG_SIZE)
+    image_array = img_to_array(image) / 255.0
+    image_array = np.expand_dims(image_array, axis=0)
+
+    prediction = model.predict(image_array)
+    predicted_class = class_names[np.argmax(prediction)]
+    confidence = np.max(prediction) * 100
+
+    # Prioridade absoluta para dor funcional
+    if dor == "Dor funcional":
+        predicted_class = "alto_risco"
+    elif predicted_class == "moderado_risco":
+        if localizacao == "Fêmur proximal (subtrocanterica, trocanter, colo femoral)" or fratura == "Sim" or funcao_neurologica == "Déficit presente":
+            predicted_class = "alto_risco"
+    elif predicted_class == "baixo_risco":
+        if dor != "Assintomático" or fratura == "Sim":
+            predicted_class = "moderado_risco"
+
+    return predicted_class, confidence
+
+# Interface Gráfica
+class ImageClassifierApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Classificador IA - Ortopedia Oncológica")
+
+        self.label = tk.Label(master, text="Escolha uma imagem de radiografia")
+        self.label.pack(pady=10)
+
+        self.choose_button = tk.Button(master, text="Selecionar Imagem", command=self.load_image)
+        self.choose_button.pack(pady=5)
+
+        # Input clínico: Dor
+        self.dor_label = tk.Label(master, text="Tipo de dor:")
+        self.dor_label.pack()
+        self.dor_var = tk.StringVar(value="Assintomático")
+        self.dor_menu = tk.OptionMenu(master, self.dor_var, "Assintomático", "Dor leve", "Dor funcional")
+        self.dor_menu.pack()
+
+        # Input clínico: Localização
+        self.loc_label = tk.Label(master, text="Localização da lesão:")
+        self.loc_label.pack()
+        self.loc_var = tk.StringVar(value="Membro superior")
+        self.loc_menu = tk.OptionMenu(master, self.loc_var, "Membro superior", "Membro inferior", "Fêmur proximal (subtrocanterica, trocanter, colo femoral)")
+        self.loc_menu.pack()
+
+        # Input clínico: Fratura presente
+        self.fratura_label = tk.Label(master, text="Fratura patológica presente:")
+        self.fratura_label.pack()
+        self.fratura_var = tk.StringVar(value="Não")
+        self.fratura_menu = tk.OptionMenu(master, self.fratura_var, "Não", "Sim")
+        self.fratura_menu.pack()
+
+        # Input clínico: Função neurológica
+        self.neuro_label = tk.Label(master, text="Função neurológica:")
+        self.neuro_label.pack()
+        self.neuro_var = tk.StringVar(value="Normal")
+        self.neuro_menu = tk.OptionMenu(master, self.neuro_var, "Normal", "Déficit presente")
+        self.neuro_menu.pack()
+
+        self.image_label = tk.Label(master)
+        self.image_label.pack(pady=10)
+
+        self.result_label = tk.Label(master, text="", font=("Arial", 14))
+        self.result_label.pack(pady=10)
+
+    def load_image(self):
+        file_path = filedialog.askopenfilename()
+        if not file_path:
+            return
+
+        try:
+            image = Image.open(file_path)
+            image.thumbnail((300, 300))
+            photo = ImageTk.PhotoImage(image)
+
+            self.image_label.configure(image=photo)
+            self.image_label.image = photo
+
+            dor = self.dor_var.get()
+            localizacao = self.loc_var.get()
+            fratura = self.fratura_var.get()
+            funcao_neurologica = self.neuro_var.get()
+
+            prediction, confidence = classify_image(file_path, dor, localizacao, fratura, funcao_neurologica)
+            self.result_label.config(text=f"Classificação: {prediction} ({confidence:.2f}% de confiança)")
+
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível processar a imagem: {e}")
+
+# Executar app
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ImageClassifierApp(root)
+    root.mainloop()
